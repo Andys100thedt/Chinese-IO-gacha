@@ -42,7 +42,7 @@ export function TextBoxTA({
   );
 }
 
-/** TB文本框 (Type-B) — brief point, styled like inline code. */
+/** TB文本框 (Type-B) — brief point, styled like inline code. Wraps to multiple lines. */
 export function TextBoxTB({
   value,
   onChange,
@@ -54,13 +54,25 @@ export function TextBoxTB({
   placeholder?: string;
   label?: string;
 }) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+
+  // auto-grow fallback for browsers without field-sizing
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [value]);
+
   return (
     <label className="flex flex-col gap-1">
       {label && (
         <span className="text-[11px] text-ink-dim">{label}</span>
       )}
-      <input
-        className="rounded border border-ink-border bg-ink-tb px-2.5 py-1.5 text-[13px] text-ink-accent2 outline-none transition-colors placeholder:text-ink-dim/50 focus:border-ink-accent"
+      <textarea
+        ref={ref}
+        rows={1}
+        className="autogrow block w-full resize-none whitespace-pre-wrap break-words rounded border border-ink-border bg-ink-tb px-2.5 py-1.5 text-[13px] leading-relaxed text-ink-accent2 outline-none transition-colors placeholder:text-ink-dim/50 focus:border-ink-accen"
         value={value}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}

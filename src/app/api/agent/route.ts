@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import OpenAI from "openai";
+import { HttpsProxyAgent } from "https-proxy-agent";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { buildSystemPrompt } from "@/lib/prompts";
@@ -18,6 +19,13 @@ const BASE_URL = RAW_BASE.replace(/\/+$/, "").endsWith("/v1")
 const MAX_TOKENS = Number(process.env.MAX_TOKENS ?? 4096);
 const TEMPERATURE = Number(process.env.T ?? 0.7);
 const TOP_P = Number(process.env.TOP_P ?? 0.95);
+
+// --- proxy ----------------------------------------------------------------
+// Route ALL LLM (HTTPS/HTTP) calls through a configurable HTTP proxy.
+// Default points at the local dev proxy (e.g. Clash / v2rayN) on :10808.
+// To disable, set LLM_PROXY="" (empty string) in .env.
+const PROXY_URL = (process.env.LLM_PROXY ?? "http://localhost:10808").trim();
+const httpAgent = PROXY_URL ? new HttpsProxyAgent(PROXY_URL) : undefined;
 
 const MAX_TOOL_STEPS = 8;
 
@@ -88,6 +96,7 @@ export async function POST(req: NextRequest) {
   const client = new OpenAI({
     apiKey: API_KEY,
     baseURL: BASE_URL,
+    httpAgent,
     defaultHeaders: {
       "HTTP-Referer": "http://localhost:3000",
       "X-Title": "Chinese IO Gacha",
