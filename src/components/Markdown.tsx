@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -110,7 +111,7 @@ const components = {
   ),
 };
 
-export function Markdown({ source }: { source: string }) {
+export const Markdown = memo(function Markdown({ source }: { source: string }) {
   if (!source) return null;
   return (
     <div className="text-[13px] text-ink-text">
@@ -119,4 +120,4 @@ export function Markdown({ source }: { source: string }) {
       </ReactMarkdown>
     </div>
   );
-}
+});

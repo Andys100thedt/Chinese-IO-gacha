@@ -26,6 +26,31 @@ const uid = () =>
 
 const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v));
 
+/**
+ * Wrapper around localStorage that DROPS `setItem` while the agent is streaming.
+ *
+ * zustand's `persist` middleware synchronously `JSON.stringify`s the entire
+ * state and calls `setItem` on every `set()`. During a long LLM stream the
+ * `patchAssistant({content})` call fires on every text delta — thousands of
+ * times — each producing a multi-100KB write. That alone is enough to OOM
+ * the tab and to bust the 5–10MB localStorage quota.
+ *
+ * We skip writes while `agentBusy` is true; the very next `set({agentBusy:
+ * false, ...})` flushes the final state once, which is what we want.
+ */
+const lazyStorage = {
+  getItem: (name: string) => localStorage.getItem(name),
+  setItem: (name: string, value: string) => {
+    if (useStore.getState().agentBusy) return;
+    try {
+      localStorage.setItem(name, value);
+    } catch {
+      // Quota exceeded / private mode / disabled — ignore.
+    }
+  },
+  removeItem: (name: string) => localStorage.removeItem(name),
+};
+
 function makeSession(): Session {
   const now = Date.now();
   return {
@@ -264,6 +289,21 @@ export const useStore = create<State>()(
           let acc = "";
           const toolCalls: ChatMessage["toolCalls"] = [];
 
+          // Coalesce text-delta -> patchAssistant to ≤1/frame.
+          // Without this, every token triggers a full sessions-array rebuild
+          // and a render of every MessageBubble, which is the OOM hot loop.
+          let pendingFrame: number | null = null;
+          const flushText = () => {
+            pendingFrame = null;
+            patchAssistant({ content: acc });
+          };
+          const cancelPendingText = () => {
+            if (pendingFrame !== null) {
+              cancelAnimationFrame(pendingFrame);
+              pendingFrame = null;
+            }
+          };
+
           try {
             const res = await fetch("/api/agent", {
               method: "POST",
@@ -289,10 +329,13 @@ export const useStore = create<State>()(
               switch (evt.type) {
                 case "text": {
                   acc += String(evt.delta ?? "");
-                  patchAssistant({ content: acc });
+                  if (pendingFrame === null) {
+                    pendingFrame = requestAnimationFrame(flushText);
+                  }
                   break;
                 }
                 case "tool": {
+                  cancelPendingText();
                   const rec = {
                     name: String(evt.name),
                     args: (evt.args ?? {}) as Record<string, unknown>,
@@ -307,20 +350,21 @@ export const useStore = create<State>()(
                   break;
                 }
                 case "done": {
-                  const finalWs = (evt.workspace as Workspace) ?? get().workspace;
+                  cancelPendingText();
                   const finalText =
-                    (evt.text as string | undefined) ??
-                    acc ??
-                    "";
-                  set({ workspace: finalWs });
+                    (evt.text as string | undefined) ?? acc ?? "";
+                  acc = finalText;
+                  // Workspace is already up-to-date via the live tool events;
+                  // we just snapshot the current state for rollback support.
                   patchAssistant({
-                    content: finalText || acc,
+                    content: finalText,
                     toolCalls: [...toolCalls],
-                    snapshot: clone(finalWs),
+                    snapshot: clone(get().workspace),
                   });
                   break;
                 }
                 case "error": {
+                  cancelPendingText();
                   throw new Error(String(evt.error ?? "未知错误"));
                 }
               }
@@ -342,8 +386,17 @@ export const useStore = create<State>()(
             const tail = buffer.trim();
             if (tail) handleEvent(JSON.parse(tail));
 
+            // Edge case: stream ended without a `done` event. Flush whatever
+            // text we've accumulated so the UI reflects reality.
+            if (pendingFrame !== null) {
+              cancelAnimationFrame(pendingFrame);
+              pendingFrame = null;
+              patchAssistant({ content: acc });
+            }
+
             set({ agentBusy: false });
           } catch (e: unknown) {
+            cancelPendingText();
             const message =
               e instanceof Error ? e.message : "请求失败（未知错误）";
             patchAssistant({
@@ -393,7 +446,7 @@ export const useStore = create<State>()(
     },
     {
       name: "chinese-io-gacha",
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(() => lazyStorage),
       partialize: (s) => ({
         workspace: s.workspace,
         sessions: s.sessions,

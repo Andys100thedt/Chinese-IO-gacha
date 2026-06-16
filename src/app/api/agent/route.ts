@@ -217,7 +217,10 @@ export async function POST(req: NextRequest) {
         emit({
           type: "done",
           text: fullText || "（没有产生回复。）",
-          workspace: ws,
+          // Note: intentionally not sending `workspace` here. The client
+          // already mirrors every tool call live, so sending the full
+          // workspace JSON would be a redundant serialization + transfer
+          // + store write. If we ever need to resync, add it back then.
           toolCalls: toolLog,
         });
         controller.close();

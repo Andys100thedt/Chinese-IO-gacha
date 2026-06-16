@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { useStore } from "@/lib/store";
 import { CHAT_PLACEHOLDER } from "@/lib/prompts";
 import type { ChatMessage } from "@/lib/types";
@@ -34,7 +34,7 @@ function ToolCallList({ msg }: { msg: ChatMessage }) {
   );
 }
 
-function MessageBubble({
+const MessageBubble = memo(function MessageBubble({
   msg,
   streaming,
 }: {
@@ -80,7 +80,7 @@ function MessageBubble({
       )}
     </div>
   );
-}
+});
 
 function SessionBar() {
   const sessions = useStore((s) => s.sessions);
